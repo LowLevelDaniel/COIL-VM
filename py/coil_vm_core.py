@@ -169,54 +169,84 @@ class RegisterManager:
 
 
 class MemoryManager:
-    """Manages memory for the VM"""
+    """Enhanced memory manager with better error handling and debugging"""
     
     def __init__(self, memory_size=1024*1024):  # Default 1MB memory
-        self.memory = bytearray(memory_size)
-        self.memory_size = memory_size
+        """Initialize memory manager with the specified size"""
+        self.memory_size = max(1024, memory_size)  # Ensure minimum size
+        print(f"Initializing memory manager with {self.memory_size} bytes")
+        self.memory = bytearray(self.memory_size)
         self.sections = {}  # Map of named sections
     
+    def _check_address(self, address, operation="access", size=1):
+        """
+        Check if an address (and range) is valid
+        Provides detailed error information for debugging
+        """
+        # Convert to unsigned 32-bit if given a negative value
+        # This handles potential sign extension issues from 32 to 64 bit
+        if address < 0:
+            print(f"Warning: Converting negative address 0x{address:x} ({address}) to unsigned")
+            address = address & 0xFFFFFFFF
+            print(f"Converted to: 0x{address:x} ({address})")
+        
+        # Check if the address is within memory bounds
+        if address < 0 or address >= self.memory_size:
+            raise MemoryError(
+                f"Address out of range during {operation}: 0x{address:x} ({address}), "
+                f"valid range is 0 to 0x{self.memory_size-1:x} ({self.memory_size-1})"
+            )
+        
+        # Check if the address range fits in memory
+        if address + size > self.memory_size:
+            raise MemoryError(
+                f"Memory operation at 0x{address:x} with size {size} exceeds memory bounds "
+                f"(limit: 0x{self.memory_size-1:x})"
+            )
+        
+        return address  # Return possibly adjusted address
+    
     def read_byte(self, address):
-        """Read a byte from memory"""
-        self._check_address(address)
+        """Read a byte from memory with enhanced error checking"""
+        address = self._check_address(address, "read_byte")
         return self.memory[address]
     
     def write_byte(self, address, value):
-        """Write a byte to memory"""
-        self._check_address(address)
+        """Write a byte to memory with enhanced error checking"""
+        address = self._check_address(address, "write_byte")
         self.memory[address] = value & 0xFF
     
     def read_word(self, address):
-        """Read a 16-bit word from memory"""
-        self._check_address(address + 1)
+        """Read a 16-bit word from memory with enhanced error checking"""
+        address = self._check_address(address, "read_word", 2)
         return (self.memory[address] | 
                 (self.memory[address + 1] << 8))
     
     def write_word(self, address, value):
-        """Write a 16-bit word to memory"""
-        self._check_address(address + 1)
+        """Write a 16-bit word to memory with enhanced error checking"""
+        address = self._check_address(address, "write_word", 2)
         self.memory[address] = value & 0xFF
         self.memory[address + 1] = (value >> 8) & 0xFF
     
     def read_long(self, address):
-        """Read a 32-bit long from memory"""
-        self._check_address(address + 3)
+        """Read a 32-bit long from memory with enhanced error checking"""
+        address = self._check_address(address, "read_long", 4)
         return (self.memory[address] | 
                 (self.memory[address + 1] << 8) |
                 (self.memory[address + 2] << 16) |
                 (self.memory[address + 3] << 24))
     
     def write_long(self, address, value):
-        """Write a 32-bit long to memory"""
-        self._check_address(address + 3)
+        """Write a 32-bit long to memory with enhanced error checking"""
+        address = self._check_address(address, "write_long", 4)
         self.memory[address] = value & 0xFF
         self.memory[address + 1] = (value >> 8) & 0xFF
         self.memory[address + 2] = (value >> 16) & 0xFF
         self.memory[address + 3] = (value >> 24) & 0xFF
     
     def read_quad(self, address):
-        """Read a 64-bit quad from memory"""
-        self._check_address(address + 7)
+        """Read a 64-bit quad from memory with enhanced error checking"""
+        address = self._check_address(address, "read_quad", 8)
         return (self.memory[address] | 
                 (self.memory[address + 1] << 8) |
                 (self.memory[address + 2] << 16) |
@@ -227,8 +257,8 @@ class MemoryManager:
                 (self.memory[address + 7] << 56))
     
     def write_quad(self, address, value):
-        """Write a 64-bit quad to memory"""
-        self._check_address(address + 7)
+        """Write a 64-bit quad to memory with enhanced error checking"""
+        address = self._check_address(address, "write_quad", 8)
         self.memory[address] = value & 0xFF
         self.memory[address + 1] = (value >> 8) & 0xFF
         self.memory[address + 2] = (value >> 16) & 0xFF
@@ -239,40 +269,65 @@ class MemoryManager:
         self.memory[address + 7] = (value >> 56) & 0xFF
     
     def read_bytes(self, address, length):
-        """Read block of bytes from memory"""
-        self._check_address(address + length - 1)
-        return self.memory[address:address + length]
+        """Read block of bytes from memory with enhanced error checking"""
+        address = self._check_address(address, "read_bytes", length)
+        return bytes(self.memory[address:address + length])
     
     def write_bytes(self, address, data):
-        """Write block of bytes to memory"""
+        """Write block of bytes to memory with enhanced error checking"""
         length = len(data)
-        self._check_address(address + length - 1)
+        address = self._check_address(address, "write_bytes", length)
         self.memory[address:address + length] = data
     
     def add_section(self, name, start_address, size, flags):
-        """Add a named memory section"""
+        """Add a named memory section with validation"""
+        if start_address < 0:
+            raise ValueError(f"Section {name} has negative start address: {start_address}")
+        
+        if size <= 0:
+            raise ValueError(f"Section {name} has invalid size: {size}")
+        
         if start_address + size > self.memory_size:
-            raise MemoryError(f"Section {name} exceeds memory size")
+            raise MemoryError(
+                f"Section {name} (0x{start_address:x}-0x{start_address+size-1:x}) "
+                f"exceeds memory size (0x{self.memory_size-1:x})"
+            )
         
         self.sections[name] = {
             'start': start_address,
             'size': size,
             'flags': flags
         }
+        print(f"Added section: {name} at 0x{start_address:x} size {size} bytes")
     
     def get_section(self, name):
         """Get information about a named section"""
         return self.sections.get(name)
     
-    def _check_address(self, address):
-        """Check if an address is valid"""
-        if address < 0 or address >= self.memory_size:
-            raise MemoryError(f"Address out of range: {address}")
-    
     def reset(self):
         """Reset all memory to zero"""
         self.memory = bytearray(self.memory_size)
         self.sections = {}
+        print("Memory reset complete")
+    
+    def dump_range(self, start, size, width=16):
+        """Dump a range of memory for debugging purposes"""
+        if start < 0 or start >= self.memory_size:
+            print(f"Error: Cannot dump memory at invalid address: 0x{start:x}")
+            return
+        
+        end = min(start + size, self.memory_size)
+        
+        print(f"Memory dump from 0x{start:08x} to 0x{end-1:08x}:")
+        for addr in range(start, end, width):
+            row_data = self.memory[addr:min(addr+width, end)]
+            hex_values = " ".join(f"{b:02x}" for b in row_data)
+            ascii_repr = "".join(chr(b) if 32 <= b <= 126 else "." for b in row_data)
+            
+            # Pad hex values to align ASCII representation
+            padding = "   " * (width - len(row_data))
+            
+            print(f"  0x{addr:08x}: {hex_values}{padding}  |{ascii_repr}|")
 
 
 class TypeSystem:
@@ -447,83 +502,139 @@ class InstructionInterpreter:
         self.OPQUAL_REL = 0x08  # Relative offset
     
     def decode_instruction(self, address):
-        """Decode instruction at given address and update RIP"""
+        """Decode instruction at given address with detailed debug info"""
         mem = self.vm.memory_manager
         
-        # Instruction format:
-        # [opcode(1)][qualifier(1)][operand_count(1)][operands...]
-        opcode = mem.read_byte(address)
-        qualifier = mem.read_byte(address + 1)
-        operand_count = mem.read_byte(address + 2)
-        
-        operands = []
-        current_pos = address + 3
-        
-        for _ in range(operand_count):
-            # Operand format: [qualifier(1)][type(1)][data(variable)]
-            op_qualifier = mem.read_byte(current_pos)
-            op_type = mem.read_byte(current_pos + 1)
+        try:
+            # Instruction format:
+            # [opcode(1)][qualifier(1)][operand_count(1)][operands...]
+            opcode = mem.read_byte(address)
+            qualifier = mem.read_byte(address + 1)
+            operand_count = mem.read_byte(address + 2)
             
-            # Handle based on qualifier
-            if op_qualifier == self.OPQUAL_IMM:
-                # Immediate value - size depends on type
-                data_size = self.vm.type_system.get_type_size(op_type)
-                if data_size == 1:
-                    value = mem.read_byte(current_pos + 2)
-                elif data_size == 2:
-                    value = mem.read_word(current_pos + 2)
-                elif data_size == 4:
-                    value = mem.read_long(current_pos + 2)
-                elif data_size == 8:
-                    value = mem.read_quad(current_pos + 2)
+            print(f"DEBUG: Decoded header - opcode: 0x{opcode:02x}, qualifier: 0x{qualifier:02x}, operand_count: {operand_count}")
+            
+            # Check for potentially invalid instruction format
+            if operand_count > 8:  # Arbitrary reasonable limit
+                print(f"WARNING: Suspicious operand count: {operand_count} - might not be a valid instruction")
+                
+            operands = []
+            current_pos = address + 3
+            
+            for i in range(operand_count):
+                print(f"DEBUG: Parsing operand {i+1} at offset 0x{current_pos - address:x} from instruction start")
+                
+                # Operand format: [qualifier(1)][type(1)][data(variable)]
+                op_qualifier = mem.read_byte(current_pos)
+                op_type = mem.read_byte(current_pos + 1)
+                
+                print(f"DEBUG: Operand {i+1} - qualifier: 0x{op_qualifier:02x}, type: 0x{op_type:02x}")
+                
+                # Check for suspicious operand qualifiers
+                valid_qualifiers = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
+                if op_qualifier not in valid_qualifiers:
+                    # This is likely not a real instruction - check if it's ASCII
+                    if 32 <= opcode <= 126 and 32 <= qualifier <= 126 and 32 <= operand_count <= 126:
+                        ascii_chars = chr(opcode) + chr(qualifier) + chr(operand_count)
+                        print(f"ERROR: This looks like ASCII text, not a COIL instruction: '{ascii_chars}...'")
+                        
+                        # Show a longer ASCII representation
+                        try:
+                            text_bytes = mem.read_bytes(address, 32)
+                            ascii_text = ''.join(chr(b) if 32 <= b <= 126 else '.' for b in text_bytes)
+                            print(f"ASCII Text found: '{ascii_text}'")
+                        except Exception:
+                            pass
+                            
+                    raise ValueError(f"Unsupported operand qualifier: {op_qualifier} (might not be a valid instruction)")
+                
+                # Handle based on qualifier
+                if op_qualifier == self.OPQUAL_IMM:
+                    # Immediate value - size depends on type
+                    data_size = self.vm.type_system.get_type_size(op_type)
+                    if data_size == 1:
+                        value = mem.read_byte(current_pos + 2)
+                    elif data_size == 2:
+                        value = mem.read_word(current_pos + 2)
+                    elif data_size == 4:
+                        value = mem.read_long(current_pos + 2)
+                    elif data_size == 8:
+                        value = mem.read_quad(current_pos + 2)
+                    else:
+                        raise ValueError(f"Unsupported immediate size: {data_size}")
+                    
+                    print(f"DEBUG: Immediate value: 0x{value:x}")
+                    
+                    operands.append({
+                        'qualifier': op_qualifier,
+                        'type': op_type,
+                        'value': value
+                    })
+                    current_pos += 2 + data_size
+                    
+                elif op_qualifier == self.OPQUAL_REG:
+                    # Register reference
+                    reg_index = mem.read_byte(current_pos + 2)
+                    print(f"DEBUG: Register index: {reg_index}")
+                    
+                    operands.append({
+                        'qualifier': op_qualifier,
+                        'type': op_type,
+                        'reg_index': reg_index
+                    })
+                    current_pos += 3
+                    
+                elif op_qualifier == self.OPQUAL_MEM:
+                    # Memory address - using 64-bit addresses
+                    address_value = mem.read_quad(current_pos + 2)
+                    print(f"DEBUG: Memory address: 0x{address_value:x}")
+                    
+                    operands.append({
+                        'qualifier': op_qualifier,
+                        'type': op_type,
+                        'address': address_value
+                    })
+                    current_pos += 10
+                    
                 else:
-                    raise ValueError(f"Unsupported immediate size: {data_size}")
-                
-                operands.append({
-                    'qualifier': op_qualifier,
-                    'type': op_type,
-                    'value': value
-                })
-                current_pos += 2 + data_size
-                
-            elif op_qualifier == self.OPQUAL_REG:
-                # Register reference
-                reg_index = mem.read_byte(current_pos + 2)
-                operands.append({
-                    'qualifier': op_qualifier,
-                    'type': op_type,
-                    'reg_index': reg_index
-                })
-                current_pos += 3
-                
-            elif op_qualifier == self.OPQUAL_MEM:
-                # Memory address - using 64-bit addresses
-                address_value = mem.read_quad(current_pos + 2)
-                operands.append({
-                    'qualifier': op_qualifier,
-                    'type': op_type,
-                    'address': address_value
-                })
-                current_pos += 10
-                
-            else:
-                # Other operand types can be added as needed
-                raise ValueError(f"Unsupported operand qualifier: {op_qualifier}")
-        
-        # Calculate instruction size for RIP update
-        instruction_size = current_pos - address
-        
-        return {
-            'opcode': opcode,
-            'qualifier': qualifier,
-            'operand_count': operand_count,
-            'operands': operands,
-            'size': instruction_size
-        }
-    
+                    # Other operand types
+                    print(f"DEBUG: Unimplemented qualifier: 0x{op_qualifier:02x}")
+                    # For now, just skip this operand - implement as needed
+                    current_pos += 2  # Skip the qualifier and type, but can't determine full size
+                    
+                    operands.append({
+                        'qualifier': op_qualifier,
+                        'type': op_type
+                    })
+            
+            # Calculate instruction size for RIP update
+            instruction_size = current_pos - address
+            
+            return {
+                'opcode': opcode,
+                'qualifier': qualifier,
+                'operand_count': operand_count,
+                'operands': operands,
+                'size': instruction_size
+            }
+        except Exception as e:
+            print(f"ERROR during instruction decoding at 0x{address:08x}: {e}")
+            # Dump more context for debugging
+            try:
+                print("Memory context around this address:")
+                for offset in range(-16, 32, 16):
+                    if address + offset >= 0:
+                        data = mem.read_bytes(address + offset, 16)
+                        hex_dump = ' '.join(f'{b:02x}' for b in data)
+                        ascii_dump = ''.join(chr(b) if 32 <= b <= 126 else '.' for b in data)
+                        print(f"0x{address+offset:08x}: {hex_dump}  |{ascii_dump}|")
+            except Exception:
+                pass
+            raise
+
     def execute(self, start_address):
         """Execute instructions starting at given address"""
-        self.vm.register_manager.set_register('RIP', start_address)
+        self.vm.register_manager.set_register('RIP', 0, start_address)
         
         running = True
         while running:
@@ -531,7 +642,7 @@ class InstructionInterpreter:
             instruction = self.decode_instruction(current_rip)
             
             # Update RIP to next instruction
-            self.vm.register_manager.set_register('RIP', current_rip + instruction['size'])
+            self.vm.register_manager.set_register('RIP', 0, current_rip + instruction['size'])
             
             # Execute the instruction
             handler = self.opcode_handlers.get(instruction['opcode'])
@@ -969,7 +1080,7 @@ class InstructionInterpreter:
 
 
 class COFLoader:
-    """Loads COIL Object Format (COF) files"""
+    """Enhanced COF loader with better validation and error handling"""
     
     def __init__(self, vm):
         self.vm = vm
@@ -977,20 +1088,43 @@ class COFLoader:
         self.loaded_sections = {}
         self.symbols = {}
         self.string_table = bytearray()
+        self.debug_mode = False  # Set to True to enable verbose debug output
+    
+    def set_debug(self, debug):
+        """Enable or disable debug output"""
+        self.debug_mode = debug
+    
+    def debug_print(self, message):
+        """Print a debug message if debug mode is enabled"""
+        if self.debug_mode:
+            print(f"[COF Loader] {message}")
     
     def load(self, filename):
-        """Load a COF file into the VM"""
-        with open(filename, 'rb') as file:
-            data = file.read()
-        
-        return self._load_from_memory(data)
+        """Load a COF file into the VM with enhanced error checking"""
+        try:
+            with open(filename, 'rb') as file:
+                data = file.read()
+            
+            self.debug_print(f"Loaded {len(data)} bytes from file: {filename}")
+            return self._load_from_memory(data)
+            
+        except FileNotFoundError:
+            raise FileNotFoundError(f"COF file not found: {filename}")
+        except PermissionError:
+            raise PermissionError(f"Permission denied when accessing COF file: {filename}")
+        except Exception as e:
+            raise RuntimeError(f"Error loading COF file: {str(e)}")
     
     def _load_from_memory(self, data):
-        """Load a COF file from memory"""
+        """Load a COF file from memory with enhanced validation"""
+        # Validate minimum file size for the header
+        if len(data) < 32:
+            raise ValueError(f"COF file too small ({len(data)} bytes), minimum is 32 bytes for the header")
+        
         # Validate COF magic number - should be 'COIL' (0x434F494C)
         magic = int.from_bytes(data[0:4], byteorder='little')
         if magic != 0x434F494C:
-            raise ValueError(f"Invalid COF file: magic number mismatch: {magic:#x}")
+            raise ValueError(f"Invalid COF file: magic number mismatch: 0x{magic:x}, expected 0x434F494C")
         
         # Parse COF header
         version_major = data[4]
@@ -1005,90 +1139,233 @@ class COFLoader:
         sym_tab_off = int.from_bytes(data[24:28], byteorder='little')
         sym_tab_size = int.from_bytes(data[28:32], byteorder='little')
         
+        self.debug_print(f"COF Version: {version_major}.{version_minor}.{version_patch}")
+        self.debug_print(f"Target: 0x{target:04x}")
+        self.debug_print(f"Sections: {section_count}")
+        self.debug_print(f"Entry point: 0x{entrypoint:08x}")
+        self.debug_print(f"String table: offset=0x{str_tab_off:x}, size={str_tab_size}")
+        self.debug_print(f"Symbol table: offset=0x{sym_tab_off:x}, size={sym_tab_size}")
+        
+        # Validate header offsets against file size
+        if str_tab_off > 0 and str_tab_off + str_tab_size > len(data):
+            raise ValueError(
+                f"String table (offset=0x{str_tab_off:x}, size={str_tab_size}) "
+                f"extends beyond end of file (size={len(data)})"
+            )
+            
+        if sym_tab_off > 0 and sym_tab_off + sym_tab_size > len(data):
+            raise ValueError(
+                f"Symbol table (offset=0x{sym_tab_off:x}, size={sym_tab_size}) "
+                f"extends beyond end of file (size={len(data)})"
+            )
+        
         self.entry_point = entrypoint
         
-        # Load string table
-        if str_tab_size > 0:
+        # Load string table if present
+        if str_tab_size > 0 and str_tab_off > 0:
             self.string_table = data[str_tab_off:str_tab_off + str_tab_size]
+            self.debug_print(f"Loaded string table ({str_tab_size} bytes)")
+        else:
+            self.debug_print("No string table found or empty string table")
         
         # Load sections
         section_offset = 32  # Start after header
-        for _ in range(section_count):
-            section = self._parse_section_header(data, section_offset)
+        
+        for section_idx in range(section_count):
+            # Check if we have enough data for the section header
+            if section_offset + 36 > len(data):
+                raise ValueError(f"Section header {section_idx} extends beyond end of file")
+            
+            section = self._parse_section_header(data, section_offset, section_idx)
             section_offset += 36  # Size of section header
             
-            # Load section data into memory
+            section_name = self._get_string(section['name_offset'])
+            self.debug_print(f"Section {section_idx}: {section_name}, offset=0x{section['offset']:x}, size={section['size']}")
+            
+            # Validate section data offset and size
             if section['size'] > 0:
+                if section['offset'] >= len(data):
+                    raise ValueError(
+                        f"Section {section_idx} ({section_name}) data offset (0x{section['offset']:x}) "
+                        f"is beyond end of file"
+                    )
+                
+                if section['offset'] + section['size'] > len(data):
+                    raise ValueError(
+                        f"Section {section_idx} ({section_name}) data "
+                        f"(offset=0x{section['offset']:x}, size={section['size']}) "
+                        f"extends beyond end of file"
+                    )
+                
+                # Extract section data
                 section_data = data[section['offset']:section['offset'] + section['size']]
                 
-                # Allocate memory for the section
-                section_address = self.vm.memory_manager.memory_size - section['size']
-                self.vm.memory_manager.write_bytes(section_address, section_data)
+                # Calculate a suitable address for the section in VM memory
+                # For simplicity, we'll use a fixed offset approach
+                # In a real implementation, this would use a more sophisticated memory allocation strategy
+                base_address = 0x10000  # Start at 64KB
+                section_address = base_address + section_idx * 0x10000  # Give each section 64KB of space
                 
-                # Register section
+                # Ensure we don't exceed memory size
+                max_address = section_address + section['size']
+                if max_address > self.vm.memory_manager.memory_size:
+                    raise MemoryError(
+                        f"Section {section_name} (size={section['size']}) would exceed VM memory size "
+                        f"at address 0x{section_address:x}"
+                    )
+                
+                self.debug_print(f"Loading section {section_name} to address 0x{section_address:x}")
+                
+                # Load section data into VM memory
+                try:
+                    self.vm.memory_manager.write_bytes(section_address, section_data)
+                except Exception as e:
+                    raise RuntimeError(f"Error loading section {section_name} data: {str(e)}")
+                
+                # Register the section in the VM
                 self.vm.memory_manager.add_section(
-                    self._get_string(section['name_offset']), 
+                    section_name, 
                     section_address, 
                     section['size'], 
                     section['flags']
                 )
                 
-                # Store mapped section
-                self.loaded_sections[section['name_offset']] = {
+                # Store mapping information for symbols
+                self.loaded_sections[section_idx] = {
+                    'name': section_name,
                     'address': section_address,
                     'size': section['size'],
                     'flags': section['flags']
                 }
         
-        # Load symbol table
-        if sym_tab_size > 0:
+        # Load symbol table if present
+        if sym_tab_size > 0 and sym_tab_off > 0:
             symbol_count = sym_tab_size // 16  # Each symbol entry is 16 bytes
+            
+            self.debug_print(f"Loading {symbol_count} symbols from symbol table")
+            
             for i in range(symbol_count):
                 offset = sym_tab_off + i * 16
-                symbol = self._parse_symbol(data, offset)
                 
+                # Check if we have enough data for the symbol entry
+                if offset + 16 > len(data):
+                    raise ValueError(f"Symbol entry {i} extends beyond end of file")
+                
+                symbol = self._parse_symbol(data, offset)
                 symbol_name = self._get_string(symbol['name_offset'])
-                self.symbols[symbol_name] = symbol
+                
+                # Adjust symbol value based on section
+                adjusted_value = symbol['value']
+                if symbol['section_index'] > 0 and symbol['section_index'] in self.loaded_sections:
+                    section = self.loaded_sections[symbol['section_index']]
+                    adjusted_value += section['address']
+                
+                self.debug_print(
+                    f"Symbol {i}: {symbol_name}, value=0x{symbol['value']:x}, "
+                    f"adjusted=0x{adjusted_value:x}, section={symbol['section_index']}"
+                )
+                
+                # Store the symbol
+                self.symbols[symbol_name] = {
+                    'name_offset': symbol['name_offset'],
+                    'value': symbol['value'],
+                    'adjusted_value': adjusted_value,
+                    'size': symbol['size'],
+                    'type': symbol['type'],
+                    'binding': symbol['binding'],
+                    'visibility': symbol['visibility'],
+                    'section_index': symbol['section_index']
+                }
         
+        # Adjust entry point if it's relative to a section
+        if entrypoint > 0 and entrypoint < 0x10000:  # Heuristic: small entry points are likely section-relative
+            # Try to find a code section
+            for section_idx, section in self.loaded_sections.items():
+                if section['flags'] & 0x02:  # Check for EXEC flag
+                    self.debug_print(f"Adjusting entry point relative to code section {section['name']}")
+                    self.entry_point = section['address'] + entrypoint
+                    break
+        
+        self.debug_print(f"Final entry point: 0x{self.entry_point:08x}")
         return self.entry_point
     
-    def _parse_section_header(self, data, offset):
-        """Parse a section header from the COF file"""
-        section = {}
-        section['name_offset'] = int.from_bytes(data[offset:offset+4], byteorder='little')
-        section['type'] = int.from_bytes(data[offset+4:offset+8], byteorder='little')
-        section['flags'] = int.from_bytes(data[offset+8:offset+12], byteorder='little')
-        section['offset'] = int.from_bytes(data[offset+12:offset+16], byteorder='little')
-        section['size'] = int.from_bytes(data[offset+16:offset+20], byteorder='little')
-        section['link'] = int.from_bytes(data[offset+20:offset+24], byteorder='little')
-        section['info'] = int.from_bytes(data[offset+24:offset+28], byteorder='little')
-        section['alignment'] = int.from_bytes(data[offset+28:offset+32], byteorder='little')
-        section['entsize'] = int.from_bytes(data[offset+32:offset+36], byteorder='little')
-        return section
+    def _parse_section_header(self, data, offset, section_idx):
+        """Parse a section header from the COF file with validation"""
+        name_offset = int.from_bytes(data[offset:offset+4], byteorder='little')
+        type_value = int.from_bytes(data[offset+4:offset+8], byteorder='little')
+        flags = int.from_bytes(data[offset+8:offset+12], byteorder='little')
+        data_offset = int.from_bytes(data[offset+12:offset+16], byteorder='little')
+        size = int.from_bytes(data[offset+16:offset+20], byteorder='little')
+        link = int.from_bytes(data[offset+20:offset+24], byteorder='little')
+        info = int.from_bytes(data[offset+24:offset+28], byteorder='little')
+        alignment = int.from_bytes(data[offset+28:offset+32], byteorder='little')
+        entsize = int.from_bytes(data[offset+32:offset+36], byteorder='little')
+        
+        # Validate critical fields
+        if name_offset >= len(self.string_table) and len(self.string_table) > 0:
+            self.debug_print(f"Warning: Section {section_idx} name offset (0x{name_offset:x}) is beyond end of string table")
+        
+        if size < 0:
+            raise ValueError(f"Section {section_idx} has negative size: {size}")
+        
+        return {
+            'name_offset': name_offset,
+            'type': type_value,
+            'flags': flags,
+            'offset': data_offset,
+            'size': size,
+            'link': link,
+            'info': info,
+            'alignment': alignment,
+            'entsize': entsize
+        }
     
     def _parse_symbol(self, data, offset):
-        """Parse a symbol from the COF file"""
-        symbol = {}
-        symbol['name_offset'] = int.from_bytes(data[offset:offset+4], byteorder='little')
-        symbol['value'] = int.from_bytes(data[offset+4:offset+8], byteorder='little')
-        symbol['size'] = int.from_bytes(data[offset+8:offset+12], byteorder='little')
-        symbol['type'] = data[offset+12]
-        symbol['binding'] = data[offset+13]
-        symbol['visibility'] = data[offset+14]
-        symbol['section_index'] = data[offset+15]
-        return symbol
+        """Parse a symbol from the COF file with validation"""
+        name_offset = int.from_bytes(data[offset:offset+4], byteorder='little')
+        value = int.from_bytes(data[offset+4:offset+8], byteorder='little')
+        size = int.from_bytes(data[offset+8:offset+12], byteorder='little')
+        type_value = data[offset+12]
+        binding = data[offset+13]
+        visibility = data[offset+14]
+        section_index = data[offset+15]
+        
+        # Validate name offset
+        if name_offset >= len(self.string_table) and len(self.string_table) > 0:
+            self.debug_print(f"Warning: Symbol name offset (0x{name_offset:x}) is beyond end of string table")
+        
+        return {
+            'name_offset': name_offset,
+            'value': value,
+            'size': size,
+            'type': type_value,
+            'binding': binding,
+            'visibility': visibility,
+            'section_index': section_index
+        }
     
     def _get_string(self, offset):
-        """Get a string from the string table"""
-        if offset < 0 or offset >= len(self.string_table):
-            return ""
+        """Get a string from the string table with bounds checking"""
+        if not self.string_table:
+            return f"<string_{offset}>"
         
-        # Strings are null-terminated
+        if offset < 0 or offset >= len(self.string_table):
+            return f"<invalid_offset_{offset}>"
+        
+        # Find the end of the string (null terminator)
         end = offset
         while end < len(self.string_table) and self.string_table[end] != 0:
             end += 1
         
-        return self.string_table[offset:end].decode('utf-8')
+        if end >= len(self.string_table):
+            # String not null-terminated, return what we have
+            return self.string_table[offset:].decode('utf-8', errors='replace')
+        
+        try:
+            return self.string_table[offset:end].decode('utf-8')
+        except UnicodeDecodeError:
+            # Handle invalid UTF-8 sequences
+            return self.string_table[offset:end].decode('utf-8', errors='replace')
     
     def get_entry_point(self):
         """Get the entry point for the loaded COF file"""
@@ -1099,20 +1376,17 @@ class COFLoader:
         if name in self.symbols:
             symbol = self.symbols[name]
             
+            # Return adjusted value if available
+            if 'adjusted_value' in symbol:
+                return symbol['adjusted_value']
+            
             # For absolute symbols
             if symbol['section_index'] == 0:
                 return symbol['value']
             
             # For section-relative symbols
-            section_name_offset = None
-            for section_offset, section in self.loaded_sections.items():
-                section_name = self._get_string(section_offset)
-                if section_name == self._get_string(symbol['section_index']):
-                    section_name_offset = section_offset
-                    break
-            
-            if section_name_offset is not None:
-                section = self.loaded_sections[section_name_offset]
+            if symbol['section_index'] in self.loaded_sections:
+                section = self.loaded_sections[symbol['section_index']]
                 return section['address'] + symbol['value']
         
         return None
