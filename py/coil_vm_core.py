@@ -1273,7 +1273,7 @@ class COFLoader:
                 }
         
         # Adjust entry point if it's relative to a section
-        if entrypoint > 0 and entrypoint < 0x10000:  # Heuristic: small entry points are likely section-relative
+        if entrypoint > 0 and entrypoint < 0x10000:
             # Try to find a code section
             for section_idx, section in self.loaded_sections.items():
                 if section['flags'] & 0x02:  # Check for EXEC flag
