@@ -512,8 +512,6 @@ class InstructionInterpreter:
             qualifier = mem.read_byte(address + 1)
             operand_count = mem.read_byte(address + 2)
             
-            print(f"DEBUG: Decoded header - opcode: 0x{opcode:02x}, qualifier: 0x{qualifier:02x}, operand_count: {operand_count}")
-            
             # Check for potentially invalid instruction format
             if operand_count > 8:  # Arbitrary reasonable limit
                 print(f"WARNING: Suspicious operand count: {operand_count} - might not be a valid instruction")
@@ -522,14 +520,11 @@ class InstructionInterpreter:
             current_pos = address + 3
             
             for i in range(operand_count):
-                print(f"DEBUG: Parsing operand {i+1} at offset 0x{current_pos - address:x} from instruction start")
-                
+
                 # Operand format: [qualifier(1)][type(1)][data(variable)]
                 op_qualifier = mem.read_byte(current_pos)
                 op_type = mem.read_byte(current_pos + 1)
-                
-                print(f"DEBUG: Operand {i+1} - qualifier: 0x{op_qualifier:02x}, type: 0x{op_type:02x}")
-                
+                 
                 # Check for suspicious operand qualifiers
                 valid_qualifiers = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
                 if op_qualifier not in valid_qualifiers:
